@@ -263,6 +263,9 @@ footer{padding-block:30px 0;text-align:center;font-size:13px;color:var(--muted);
 .cars svg{width:25px;height:25px}
 .preg{font-size:18px;font-weight:700}
 @media (max-width:400px){ .cars svg{width:21px;height:21px} .foto-row{gap:6px;padding:6px 8px} }
+tr.grp td{background:var(--accent-soft);padding:9px 10px;border-bottom:1px solid var(--line)}
+.grp-nm{font-family:var(--display);font-weight:700;font-size:14px;color:var(--accent);margin-right:9px}
+.grp-meta{font-size:12px;color:var(--muted);font-family:var(--mono)}
 @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
 @media (max-width:420px){
   .ind-row{grid-template-columns:26px minmax(70px,1fr) 1.4fr auto}
@@ -1141,6 +1144,12 @@ function seleccionar(node){
 
 /* ---------- panel del expositor ---------- */
 var refrescoAuto = null;
+function claveCaso(r){
+  var t = String(r.caso || "").trim();
+  if (!t) return "Sin grupo";
+  var n = t.match(/\d+/);
+  return n ? ("Caso " + parseInt(n[0], 10)) : (t.charAt(0).toUpperCase() + t.slice(1));
+}
 function filaValida(r){
   var g = { total: r.puntaje, e1:r.e1, e2:r.e2, e3:r.e3, e4:r.e4 };
   return codigo(r.nombre || "", r.caso === "sin grupo" ? "" : (r.caso || ""), g) === (r.codigo || "");
@@ -1174,20 +1183,38 @@ function pintarPanel(rows){
   ["#","Estudiante","Caso","Puntaje","E1","E2","E3","E4","Tiempo",""].forEach(function(h){ trh.appendChild(el("th", null, h)); });
   th.appendChild(trh); t.appendChild(th);
   var tb = el("tbody");
-  rows.forEach(function(r, i){
-    var tr = el("tr");
-    tr.appendChild(el("td","num", String(i+1)));
-    tr.appendChild(el("td", null, r.nombre || "—"));
-    tr.appendChild(el("td", null, r.caso || "—"));
-    var e = estado(r.puntaje || 0);
-    var tdp = el("td","num"); var sp = el("span","pct s-"+e, (r.puntaje==null?"—":r.puntaje+"/100")); tdp.appendChild(sp); tr.appendChild(tdp);
-    [r.e1,r.e2,r.e3,r.e4].forEach(function(v){ tr.appendChild(el("td","num", v==null?"—":String(v))); });
-    var seg = r.segundos || 0;
-    tr.appendChild(el("td","num", seg ? Math.floor(seg/60)+":"+(seg%60<10?"0":"")+(seg%60) : "—"));
-    var td = el("td");
-    td.appendChild(el("span","pill " + (filaValida(r)?"ok":"no"), filaValida(r) ? "ok" : "revisar"));
-    tr.appendChild(td);
-    tb.appendChild(tr);
+  var grupos = {};
+  rows.forEach(function(r){ var c = claveCaso(r); (grupos[c] = grupos[c] || []).push(r); });
+  var claves = Object.keys(grupos).sort(function(a,b){
+    var na = parseInt(a.replace(/\D/g,""),10), nb = parseInt(b.replace(/\D/g,""),10);
+    if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+    if (isNaN(na) && !isNaN(nb)) return 1;
+    if (!isNaN(na) && isNaN(nb)) return -1;
+    return a.localeCompare(b, "es");
+  });
+  claves.forEach(function(c){
+    var g = grupos[c].slice().sort(function(a,b){ return (b.puntaje||0) - (a.puntaje||0); });
+    var pg = Math.round(g.reduce(function(a,r){ return a + (r.puntaje||0); },0) / g.length);
+    var trg = el("tr","grp");
+    var tdg = el("td"); tdg.setAttribute("colspan","10");
+    tdg.appendChild(el("span","grp-nm", c));
+    tdg.appendChild(el("span","grp-meta", g.length + (g.length===1?" estudiante":" estudiantes") + " · promedio " + pg + "/100"));
+    trg.appendChild(tdg); tb.appendChild(trg);
+    g.forEach(function(r, i){
+      var tr = el("tr");
+      tr.appendChild(el("td","num", String(i+1)));
+      tr.appendChild(el("td", null, r.nombre || "—"));
+      tr.appendChild(el("td", null, r.caso || "—"));
+      var e = estado(r.puntaje || 0);
+      var tdp = el("td","num"); tdp.appendChild(el("span","pct s-"+e, (r.puntaje==null?"—":r.puntaje+"/100"))); tr.appendChild(tdp);
+      [r.e1,r.e2,r.e3,r.e4].forEach(function(v){ tr.appendChild(el("td","num", v==null?"—":String(v))); });
+      var seg = r.segundos || 0;
+      tr.appendChild(el("td","num", seg ? Math.floor(seg/60)+":"+(seg%60<10?"0":"")+(seg%60) : "—"));
+      var td = el("td");
+      td.appendChild(el("span","pill " + (filaValida(r)?"ok":"no"), filaValida(r) ? "ok" : "revisar"));
+      tr.appendChild(td);
+      tb.appendChild(tr);
+    });
   });
   t.appendChild(tb); sc.appendChild(t); card.appendChild(sc);
   out.appendChild(card);
@@ -1208,13 +1235,55 @@ function cargarPanel(){
 function descargarCSV(){
   var rows = ($("panel-out")._rows) || [];
   if (!rows.length) return;
-  var cab = "Estudiante,Caso,Puntaje,E1,E2,E3,E4,Segundos,Codigo,Verificado,Fecha\n";
-  var cuerpo = rows.map(function(r){
-    return [r.nombre, r.caso, r.puntaje, r.e1, r.e2, r.e3, r.e4, r.segundos, r.codigo,
-            filaValida(r) ? "si" : "no", r.creado_en]
-      .map(function(v){ return '"' + String(v == null ? "" : v).replace(/"/g,'""') + '"'; }).join(",");
-  }).join("\n");
-  var blob = new Blob(["\ufeff" + cab + cuerpo], {type:"text/csv;charset=utf-8"});
+  var D = ";";
+  function q(v){
+    if (v == null || v === "") return "";
+    var t = String(v);
+    if (/^-?\d+$/.test(t)) return t;
+    return '"' + t.replace(/"/g,'""') + '"';
+  }
+  function fila(a){ return a.map(q).join(D); }
+  function prom(g){ return Math.round(g.reduce(function(a,r){ return a + (r.puntaje||0); },0) / g.length); }
+  function reloj(seg){ seg = seg||0; return Math.floor(seg/60) + ":" + (seg%60<10?"0":"") + (seg%60); }
+
+  var grupos = {};
+  rows.forEach(function(r){ var c = claveCaso(r); (grupos[c] = grupos[c] || []).push(r); });
+  var claves = Object.keys(grupos).sort(function(a,b){
+    var na = parseInt(a.replace(/\D/g,""),10), nb = parseInt(b.replace(/\D/g,""),10);
+    if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+    if (isNaN(na) && !isNaN(nb)) return 1;
+    if (!isNaN(na) && isNaN(nb)) return -1;
+    return a.localeCompare(b, "es");
+  });
+
+  var L = ["sep=" + D];
+  L.push(fila(["AUDITORIA DE CLIMA LABORAL - RESULTADOS POR GRUPO"]));
+  L.push(fila(["Descargado", new Date().toLocaleString("es-CO")]));
+  L.push(fila(["Total de respuestas", rows.length]));
+  L.push("");
+
+  claves.forEach(function(c){
+    var g = grupos[c].slice().sort(function(a,b){ return (b.puntaje||0) - (a.puntaje||0); });
+    L.push(fila([c.toUpperCase(), g.length + (g.length===1 ? " estudiante" : " estudiantes"), "Promedio del grupo", prom(g) + "/100"]));
+    L.push(fila(["Estudiante","Puntaje","E1 Diagnostico","E2 Testimonios","E3 Decisiones","E4 Ciclo","Tiempo","Codigo","Verificado","Fecha y hora"]));
+    g.forEach(function(r){
+      L.push(fila([r.nombre, r.puntaje, r.e1, r.e2, r.e3, r.e4, reloj(r.segundos),
+                   r.codigo, filaValida(r) ? "si" : "REVISAR",
+                   String(r.creado_en||"").replace("T"," ").slice(0,19)]));
+    });
+    L.push("");
+  });
+
+  L.push(fila(["RESUMEN POR GRUPO"]));
+  L.push(fila(["Grupo","Estudiantes","Promedio","Mas alto","Mas bajo"]));
+  claves.forEach(function(c){
+    var ps = grupos[c].map(function(r){ return r.puntaje||0; });
+    L.push(fila([c, ps.length, prom(grupos[c]), Math.max.apply(null, ps), Math.min.apply(null, ps)]));
+  });
+  var todos = rows.map(function(r){ return r.puntaje||0; });
+  L.push(fila(["TODO EL CURSO", rows.length, prom(rows), Math.max.apply(null, todos), Math.min.apply(null, todos)]));
+
+  var blob = new Blob(["\ufeff" + L.join("\r\n")], {type:"text/csv;charset=utf-8"});
   var a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "resultados-clima-laboral.csv";
@@ -1263,7 +1332,7 @@ $("back-intro").addEventListener("click", function(){
 $("refrescar").addEventListener("click", cargarPanel);
 $("csv-btn").addEventListener("click", descargarCSV);
 $("qr-btn").addEventListener("click", mostrarQR);
-if (location.hash === "#panel"){ irA("view-panel"); cargarPanel(); }
+if (location.hash === "#panel"){ irA("view-panel"); cargarPanel(); refrescoAuto = setInterval(function(){ if (!$("view-panel").hidden) cargarPanel(); }, 10000); }
 renderIntro();
 })();
 </script>
